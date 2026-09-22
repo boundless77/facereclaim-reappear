@@ -1,0 +1,127 @@
+# File modified by authors of InstructPix2Pix from original (https://github.com/CompVis/stable-diffusion).
+# See more details in LICENSE.
+
+model:
+  base_learning_rate: 1.0e-06
+  target: ldm.models.diffusion.FaceReclaim_s1.LatentDiffusion
+  params:
+    linear_start: 0.00085
+    linear_end: 0.0120
+    num_timesteps_cond: 1
+    log_every_t: 200
+    timesteps: 1000
+    first_stage_key: edited
+    cond_stage_key: edit
+    image_size: 64
+    channels: 4
+    cond_stage_trainable: true # Note: different from the one we trained before
+    attribute_stage_trainable: true
+    conditioning_key: hybrid
+    monitor: val/loss_simple_ema
+    scale_factor: 0.18215
+    use_ema: false
+    load_ema: false
+    unet_config:
+      target: ldm.modules.diffusionmodules.openaimodel.UNetModel
+      params:
+        image_size: 64 # unused
+        in_channels: 8
+        out_channels: 4
+        model_channels: 320
+        attention_resolutions: [ 4, 2, 1 ]
+        num_res_blocks: 2
+        channel_mult: [ 1, 2, 4, 4 ]
+        num_heads: 8
+        use_spatial_transformer: True
+        transformer_depth: 1
+        context_dim: 768
+        use_checkpoint: True
+        legacy: False
+
+    first_stage_config:
+      target: ldm.models.autoencoder.AutoencoderKL
+      params:
+        embed_dim: 4
+        monitor: val/rec_loss
+        ckpt_path: ./checkpoints/vae.ckpt
+        ddconfig:
+          double_z: true
+          z_channels: 4
+          resolution: 256
+          in_channels: 3
+          out_ch: 3
+          ch: 128
+          ch_mult:
+          - 1
+          - 2
+          - 4
+          num_res_blocks: 2
+          attn_resolutions: []
+          dropout: 0.0
+        lossconfig:
+          target: torch.nn.Identity
+
+    attribute_stage_config:
+      target: ldm.modules.diffusionmodules.openaimodel.EncoderUNetModel
+      params:
+        image_size: 64 # unused
+        in_channels: 4
+        out_channels: 4
+        model_channels: 320
+        attention_resolutions: [ 4, 2, 1 ]
+        num_res_blocks: 2
+        channel_mult: [ 1, 2, 4, 4 ]
+        num_heads: 8
+        transformer_depth: 1
+        use_checkpoint: True
+        legacy: False
+
+    cond_stage_config:
+      target: ldm.modules.encoders.modules.EnhancedTextEmbedder
+    id_stage_config:
+      target: ldm.modules.encoders.modules.IDExtractor
+    text_stage_config:
+        target: ldm.modules.encoders.modules.FrozenCLIPEmbedder
+
+data:
+  target: main.DataModuleFromConfig
+  params:
+    batch_size: 6
+    num_workers: 1
+    train:
+      target: DDF_dataset.DDFDataset
+      params:
+        source_folder: '/FaceReclaim/train/infoswap-diffface-codeswap/source'
+        target_folder: '/FaceReclaim/train/infoswap-diffface-codeswap/target'
+        result_folder: '/FaceReclaim/train/infoswap-diffface-codeswap/result'
+        mask_64: '/FaceReclaim/train/infoswap-diffface-codeswap/mask/mask_64'
+        mask_32: '/FaceReclaim/train/infoswap-diffface-codeswap/mask/mask_32'
+        mask_16: '/FaceReclaim/train/infoswap-diffface-codeswap/mask/mask_16'
+#        split: train
+    validation:
+      target: DDF_dataset.DDFDataset
+      params:
+        source_folder: '/FaceReclaim/val/source'
+        target_folder: '/FaceReclaim/val/target'
+        result_folder: '/FaceReclaim/val/result_infoswap'
+        mask_64: '/FaceReclaim/val/mask_64'
+        mask_32: '/FaceReclaim/val/mask_32'
+        mask_16: '/FaceReclaim/val/mask_16'
+#        split: val
+
+
+lightning:
+  callbacks:
+    image_logger:
+      target: main.ImageLogger
+      params:
+        batch_frequency: 10000000000
+        max_images: 3
+        increase_log_steps: False
+
+  trainer:
+
+    max_epochs: 1000
+    benchmark: True
+    accumulate_grad_batches: 16
+    check_val_every_n_epoch: 1
