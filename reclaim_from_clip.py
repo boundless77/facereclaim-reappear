@@ -147,14 +147,19 @@ def restore(work_dir, output_dir, output_names, args):
         mask_32=str(work_dir / "mask" / "mask_32") + "/",
         mask_16=str(work_dir / "mask" / "mask_16") + "/",
     )
+    # DDFDataset may shuffle its internal file list. Match each result using
+    # the actual temporary source name, never its position in the loader.
+    output_by_source = {
+        f"{index + 1:05d}_source": name
+        for index, name in enumerate(output_names)
+    }
     loader = DataLoader(dataset, batch_size=1, shuffle=False)
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with torch.no_grad():
-        for index, batch in enumerate(
-            tqdm(loader, total=len(output_names), desc="Restoring target images")
-        ):
-            output_path = output_dir / output_names[index]
+        for batch in tqdm(loader, total=len(output_names), desc="Restoring target images"):
+            source_name = batch["source_name"][0]
+            output_path = output_dir / output_by_source[source_name]
             output_path.parent.mkdir(parents=True, exist_ok=True)
             if output_path.exists():
                 continue
