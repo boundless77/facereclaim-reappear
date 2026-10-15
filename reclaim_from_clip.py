@@ -24,8 +24,7 @@ from Dataset_ID_nosource import faceDataset_ID
 OLD_PREFIX = "/mnt/home/chenxiaofu/facetrack/data/deepfakes"
 NEW_PREFIX = "/mnt/data/zhonghuanlong/Dataset/DeepFake"
 EXTRACT_SCRIPT = Path(
-    "/mnt/home/zhonghuanlong/Research/Face/facereclaim/"
-    "attribute/injection/extract_attribute_generic.py"
+    "/mnt/home/zhonghuanlong/Research/Face/facereclaim/attribute/injection/extract_attribute_generic.py"
 )
 
 

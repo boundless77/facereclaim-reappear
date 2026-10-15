@@ -1,6 +1,8 @@
 # ms1mv3_local_rec_512.py
 import os
 from PIL import Image
+import io
+import numpy as np
 from torchvision import transforms as T
 from torch.utils.data import TensorDataset
 import cv2
@@ -8,7 +10,7 @@ from omegaconf import ListConfig
 from tqdm import tqdm
 import random
 random.seed(42)
-
+import re
 
 
 def get_all_image_files(directory, extensions=None):
@@ -22,8 +24,92 @@ def get_all_image_files(directory, extensions=None):
             if any(file.lower().endswith(ext) for ext in extensions):
                 image_files.append(os.path.abspath(os.path.join(root, file)))
     return image_files
+
+
+def sample_source_ids(image_files, max_source_ids, seed=42):
+    """Sample a fixed number of source identities for each target directory."""
+    if max_source_ids is None or max_source_ids <= 0:
+        return image_files
+
+    sampler = random.Random(seed)
+    source_dirs = {}
+    source_pattern = re.compile(r"^(\d+)_(\d+)$")
+    for image_path in image_files:
+        source_dir = os.path.dirname(image_path)
+        match = source_pattern.fullmatch(os.path.basename(source_dir))
+        if match is None:
+            continue
+        target_id, source_id = match.groups()
+        target_key = (os.path.dirname(source_dir), target_id)
+        source_dirs.setdefault(target_key, {})[int(source_id)] = source_dir
+
+    if not source_dirs:
+        return image_files
+
+    selected_dirs = set()
+    for target_key in sorted(source_dirs):
+        dirs_by_source = source_dirs[target_key]
+        source_ids = sorted(dirs_by_source)
+        selected_sources = sampler.sample(
+            source_ids,
+            k=min(max_source_ids, len(source_ids)),
+        )
+        selected_dirs.update(dirs_by_source[source_id] for source_id in selected_sources)
+
+    all_source_dirs = {
+        source_dir
+        for dirs_by_source in source_dirs.values()
+        for source_dir in dirs_by_source.values()
+    }
+    filtered = [
+        image_path
+        for image_path in image_files
+        if (
+            os.path.dirname(image_path) not in all_source_dirs
+            or os.path.dirname(image_path) in selected_dirs
+        )
+    ]
+    return filtered
+
+
+def select_images_per_pair(image_files, ratio):
+    """Keep a fixed prefix of images inside each target-source pair directory."""
+    if ratio == 0 or ratio == 1:
+        return image_files
+
+    images_by_pair = {}
+    for image_path in image_files:
+        pair_dir = os.path.dirname(image_path)
+        images_by_pair.setdefault(pair_dir, []).append(image_path)
+
+    sampled_images = []
+    for pair_dir in sorted(images_by_pair):
+        pair_images = sorted(images_by_pair[pair_dir])
+        image_count = len(pair_images)
+        if ratio > 0:
+            keep_count = int(image_count * ratio) if ratio <= 1 else int(ratio)
+            keep_count = min(max(keep_count, 0), image_count)
+            selected = pair_images[:keep_count]
+        elif ratio >= -1:
+            selected = pair_images[int(image_count * ratio):]
+        else:
+            selected = pair_images[int(ratio):]
+        sampled_images.extend(selected)
+
+    return sampled_images
+
+
 class faceDataset_ID(TensorDataset):
-    def __init__(self, root_path,ratio,form_gallery,logger=None, return_parsing=False):
+    def __init__(
+        self,
+        root_path,
+        ratio,
+        form_gallery,
+        logger=None,
+        return_parsing=False,
+        max_source_ids=5,
+        source_sampling_seed=42,
+    ):
         self.logger=logger
         self.root_path = root_path
         self.ratio=ratio
@@ -57,6 +143,30 @@ class faceDataset_ID(TensorDataset):
         else:
             image_paths = get_all_image_files(directory=root_path)
             self.image_list.extend(image_paths)
+        image_count_before_source_limit = len(self.image_list)
+        self.image_list = sample_source_ids(
+            self.image_list,
+            max_source_ids=max_source_ids,
+            seed=source_sampling_seed,
+        )
+        image_count_before_ratio = len(self.image_list)
+        self.image_list = select_images_per_pair(
+            self.image_list,
+            ratio=ratio,
+        )
+        if len(self.image_list) != image_count_before_source_limit:
+            print(
+                "Source limit| images: "
+                f"{image_count_before_source_limit} -> {len(self.image_list)} "
+                f"(sampled {max_source_ids} source IDs per target, "
+                f"seed={source_sampling_seed})"
+            )
+        if len(self.image_list) != image_count_before_ratio:
+            print(
+                "Pair ratio| images: "
+                f"{image_count_before_ratio} -> {len(self.image_list)} "
+                f"(ratio={ratio}, keep prefix per pair)"
+            )
         random.shuffle(self.image_list)
         for index, path in enumerate(tqdm(self.image_list, desc="classifying image paths")):
             if 'cdfv2' in self.image_list[index] or 'id' in self.image_list[index]:
@@ -85,36 +195,6 @@ class faceDataset_ID(TensorDataset):
         print(f"Before ratio|Total IDs|images: {len(self.idbook)}:{len(self.image_list)} ")
         print(f"Before ratio|Total real IDs: {len(self.real_idbook)}")
         print(f"Before ratio|Total fake IDs: {len(self.fake_idbook)}")
-        # import pdb;pdb.set_trace()
-        if not self.form_gallery:
-            if ratio > 0:
-                # soft ratio
-                if ratio<=1:
-                    for key in self.idbook:
-                        # self.idbook[key] = self.idbook[key][:int(len(self.idbook[key]) * ratio)]
-                        self.real_idbook[key] = self.real_idbook[key][:int(len(self.real_idbook[key]) * ratio)] if key in self.real_idbook else []
-                        self.fake_idbook[key] = self.fake_idbook[key][:int(len(self.fake_idbook[key]) * ratio)] if key in self.fake_idbook else []
-                # hard ratio
-                else:
-                    for key in self.idbook:
-                        # self.idbook[key] = self.idbook[key][:int(ratio)]
-                        self.real_idbook[key] = self.real_idbook[key][:int(ratio)] if key in self.real_idbook else []
-                        self.fake_idbook[key] = self.fake_idbook[key][:int(ratio)] if key in self.fake_idbook else []
-            else:
-                if ratio>=-1:
-                    for key in self.idbook:
-                        # self.idbook[key] = self.idbook[key][int(len(self.idbook[key]) * ratio):]
-                        self.real_idbook[key] = self.real_idbook[key][int(len(self.real_idbook[key]) * ratio):] if key in self.real_idbook else []
-                        self.fake_idbook[key] = self.fake_idbook[key][int(len(self.fake_idbook[key]) * ratio):] if key in self.fake_idbook else []
-                else:
-                    for key in self.idbook:
-                        # self.idbook[key] = self.idbook[key][int(ratio):]
-                        self.real_idbook[key] = self.real_idbook[key][int(ratio):] if key in self.real_idbook else []
-                        self.fake_idbook[key] = self.fake_idbook[key][int(ratio):] if key in self.fake_idbook else []
-        else:
-            for key in self.idbook:
-                self.real_idbook[key] = self.real_idbook[key][:int(ratio)] if key in self.real_idbook else []
-                self.fake_idbook[key] = self.fake_idbook[key][:int(ratio)] if key in self.fake_idbook else []
         # if self.form_gallery and 'cdfv2' in self.image_list[0]:
         #     self.image_list = self.scenebook[0]
         # else:
@@ -140,50 +220,20 @@ class faceDataset_ID(TensorDataset):
                     parsing_img = self.parsing_transform(fake_img_pil)
                 if 'celeba' in fake_path:
                     ori_id=int(self.image_list[item].split('/')[-2]) if 'real' in self.image_list[item] else int(self.image_list[item].split('/')[-2].split('_')[0])
-                    # fake_id=ori_id if 'real' in self.image_list[item] else int(self.image_list[item].split('/')[-2].split('_')[1])
-                    # if 'real' not in fake_path and not self.form_gallery:
-                    #     base_dataset_path=fake_path.replace('deepfakes/image','datasets/kl').rsplit('/', 3)[0]+'/real'
-                    #     source_path=base_dataset_path+f'/{fake_id}/'+f"{fake_path.split('/')[-1].split('.')[0].split('_')[1]}.jpg"
-                    #     target_path=base_dataset_path+f'/{ori_id}/'+f"{fake_path.split('/')[-1].split('.')[0].split('_')[0]}.jpg"
-                    #     source_img = Image.fromarray(cv2.imread(source_path)[:, :, ::-1]) # BGR to RGB
-                    #     source_img = self.id_transform(source_img)
-                    #     target_img = Image.fromarray(cv2.imread(target_path)[:, :, ::-1]) # BGR to RGB
-                    #     target_img = self.id_transform(target_img)
-                    # ret={
-                    #     'image': fake_img,
-                    #     'image_path': fake_path,
-                    #     'source_path': source_path,
-                    #     'target_path': target_path,
-                    #     'pri_image': source_img,
-                    #     'sec_image': target_img,
-                    #     'pri_label': fake_id,
-                    #     'sec_label': ori_id
-                    # }
+                   
                     ret={
                         'image': fake_img,
                         'sec_label': ori_id
                     }
-                    # else:
-                    #     ret={
-                    #         'image': fake_img,
-                    #         'image_path': fake_path,
-                    #         'source_path': fake_path,
-                    #         'target_path': fake_path,
-                    #         'pri_image': fake_img,
-                    #         'sec_image': torch.zeros_like(fake_img),
-                    #         'pri_label': ori_id,
-                    #         'sec_label': ori_id
-                    #     }
+                   
                 elif 'vgg2' in fake_path:
                     ori_id=int(self.image_list[item].split('/')[-2].lstrip('n')) if 'real' in self.image_list[item] else int(self.image_list[item].split('/')[-2].split('_')[0].lstrip('n'))
-                    # fake_id=ori_id if 'real' in self.image_list[item] else int(self.image_list[item].split('/')[-2].split('_')[1].lstrip('n'))
                     ret={
                         'image': fake_img,
                         'sec_label': ori_id
                     }
                 elif 'cdfv2' in fake_path or 'id' in fake_path:
                     ori_id = int(self.image_list[item].split('/')[-2][2:]) if 'real' in self.image_list[item] else int(self.image_list[item].split('/')[-2].split('_')[0][2:])
-                    # fake_id=ori_id if 'real' in self.image_list[item] else int(self.image_list[item].split('/')[-2].split('_')[1][2:])
                     ret={
                         'image': fake_img,
                         'sec_label': ori_id
@@ -192,7 +242,6 @@ class faceDataset_ID(TensorDataset):
                     ret['parsing_image'] = parsing_img
                 return ret
             except Exception as e:
-                # print(f"Warning: Skipping bad image at {self.image_list[item]} due to {e}")
                 item = random.randint(0, len(self.image_list) - 1)
 
 
