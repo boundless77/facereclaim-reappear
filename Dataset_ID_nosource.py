@@ -33,8 +33,11 @@ def sample_source_ids(image_files, max_source_ids, seed=42):
 
     sampler = random.Random(seed)
     source_dirs = {}
-    source_pattern = re.compile(r"^(\d+)_(\d+)$")
+    source_pattern = re.compile(r"^(?:id)?(\d+)_(?:id)?(\d+)$")
     for image_path in image_files:
+        path_parts = os.path.normpath(image_path).split(os.sep)
+        if any(part.lower() == "real" for part in path_parts):
+            continue
         source_dir = os.path.dirname(image_path)
         match = source_pattern.fullmatch(os.path.basename(source_dir))
         if match is None:
@@ -163,9 +166,9 @@ class faceDataset_ID(TensorDataset):
             )
         if len(self.image_list) != image_count_before_ratio:
             print(
-                "Pair ratio| images: "
+                "Directory ratio| images: "
                 f"{image_count_before_ratio} -> {len(self.image_list)} "
-                f"(ratio={ratio}, keep prefix per pair)"
+                f"(ratio={ratio}, keep prefix per directory)"
             )
         random.shuffle(self.image_list)
         for index, path in enumerate(tqdm(self.image_list, desc="classifying image paths")):
