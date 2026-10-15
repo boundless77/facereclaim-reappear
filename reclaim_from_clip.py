@@ -21,10 +21,10 @@ from ldm.util import instantiate_from_config
 from Dataset_ID_nosource import faceDataset_ID
 
 
-OLD_PREFIX = "/mnt/home/chenxiaofu/facetrack/data/deepfakes"
-NEW_PREFIX = "/mnt/data/zhonghuanlong/Dataset/DeepFake"
+OLD_PREFIX = "/mnt/home/chenxiaofu/facetrack/data/deepfakes" #原始fake图片的位置
+NEW_PREFIX = "/mnt/data/zhonghuanlong/Dataset/DeepFake" #希望保存文件的结构方便测试，所以只需换前缀
 EXTRACT_SCRIPT = Path(
-    "/mnt/home/zhonghuanlong/Research/Face/facereclaim/attribute/injection/extract_attribute_generic.py"
+    "/mnt/home/zhonghuanlong/Research/Face/facereclaim/attribute/injection/extract_attribute_generic.py"   #这个代码是用来提取mask的。
 )
 
 
