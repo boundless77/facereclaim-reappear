@@ -43,7 +43,7 @@ model:
       params:
         embed_dim: 4
         monitor: val/rec_loss
-        ckpt_path: ./checkpoints/vae.ckpt
+        ckpt_path: /mnt/data/zhonghuanlong/models/faceReclaim/checkpoints/vae.ckpt
         ddconfig:
           double_z: true
           z_channels: 4
