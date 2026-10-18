@@ -1,4 +1,5 @@
 import copy
+import inspect
 import math
 
 import torch
@@ -7,7 +8,6 @@ from functools import partial
 import clip
 from einops import rearrange, repeat
 from transformers import CLIPTokenizer, CLIPTextModel
-import kornia
 import torch.nn.functional as F
 from ldm.modules.x_transformer import Encoder, \
     TransformerWrapper  # TODO: can we directly rely on lucidrains code and simply add this as a reuirement? --> test
@@ -196,6 +196,9 @@ class FrozenClipImageEmbedder(nn.Module):
         self.register_buffer('std', torch.Tensor([0.26862954, 0.26130258, 0.27577711]), persistent=False)
 
     def preprocess(self, x):
+        # Kornia 0.6.0 initializes pretrained HardNet during import. Only this
+        # optional image encoder needs Kornia; FaceReclaim uses the text encoder.
+        import kornia
         # normalize to [0,1]
         x = kornia.geometry.resize(x, (224, 224),
                                    interpolation='bicubic', align_corners=True,
@@ -236,10 +239,12 @@ class IDEmbedder(nn.Module):
 
 
 class IDExtractor(nn.Module):
-    def __init__(self, device='cuda'):
+    def __init__(self, device='cuda', checkpoint_path=None):
         super().__init__()
         self.netArc_checkpoint = '/mnt/data/zhonghuanlong/models/faceReclaim/checkpoints/arcface_checkpoint.tar'
-        self.netArc_checkpoint = torch.load(self.netArc_checkpoint)
+        options = {'weights_only': False} if 'weights_only' in inspect.signature(torch.load).parameters else {}
+        self.netArc_checkpoint = torch.load(checkpoint_path or self.netArc_checkpoint,
+                                             map_location='cpu', **options)
         self.netArc = self.netArc_checkpoint
         self.device = device
         self.netArc.eval()

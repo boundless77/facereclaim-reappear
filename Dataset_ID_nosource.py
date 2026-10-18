@@ -33,7 +33,7 @@ def sample_source_ids(image_files, max_source_ids, seed=42):
 
     sampler = random.Random(seed)
     source_dirs = {}
-    source_pattern = re.compile(r"^(?:id)?(\d+)_(?:id)?(\d+)$")
+    source_pattern = re.compile(r"^(?:id|n)?(\d+)_(?:id|n)?(\d+)$")
     for image_path in image_files:
         path_parts = os.path.normpath(image_path).split(os.sep)
         if any(part.lower() == "real" for part in path_parts):

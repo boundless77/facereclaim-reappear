@@ -135,6 +135,20 @@ class Generator_Adain_Upsample(nn.Module):
         )
         self.last_layer = nn.Sequential(nn.ReflectionPad2d(3), nn.Conv2d(64, output_nc, kernel_size=7, padding=0))
 
+    def extract_mask_features(self, input):
+        """Return the original pre-AdaIN features without computing an unused image.
+
+        Keep module mode unchanged: legacy masks depend on training BatchNorm.
+        No identity vector is used before these three features are captured.
+        """
+        x = self.first_layer(input)
+        x = self.down1(x)
+        features = []
+        for layer in (self.down2, self.down3, self.down4):
+            x = layer(x)
+            features.append(torch.mean(x, dim=1, keepdim=True))
+        return features
+
     def forward(self, input, dlatents):
         features = []
 

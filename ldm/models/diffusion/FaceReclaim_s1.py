@@ -9,6 +9,7 @@ https://github.com/CompVis/taming-transformers
 # File modified by authors of InstructPix2Pix from original (https://github.com/CompVis/stable-diffusion).
 # See more details in LICENSE.
 
+import inspect
 import torch
 import torch.nn as nn
 import numpy as np
@@ -234,7 +235,8 @@ class DDPM(pl.LightningModule):
             print(f"Unexpected Keys: {unexpected}")
 
     def init_from_ckpt_old(self, path, ignore_keys=list(), only_model=False):
-        sd = torch.load(path, map_location="cpu")
+        options = {'weights_only': False} if 'weights_only' in inspect.signature(torch.load).parameters else {}
+        sd = torch.load(path, map_location="cpu", **options)
         if "state_dict" in list(sd.keys()):
             sd = sd["state_dict"]
         keys = list(sd.keys())
@@ -1145,8 +1147,13 @@ class LatentDiffusion(DDPM):
 
         else:
             result_img = cond['c_concat'][0]
-            attributes = list(attributes.values())
-            attributes_control = self.attribute_stage_model(x=result_img, attributes=attributes)
+            if isinstance(attributes, dict) and '_cached_control' in attributes:
+                # UNet consumes this list with pop(); copy the container for every step.
+                # Cached tensors are valid only for this batch under frozen eval inference.
+                attributes_control = list(attributes['_cached_control'])
+            else:
+                attributes = list(attributes.values())
+                attributes_control = self.attribute_stage_model(x=result_img, attributes=attributes)
             x_recon = self.model(x_noisy, t, attributes=attributes_control, **cond)
             # x_recon = self.model(x_noisy, t, **cond)
 

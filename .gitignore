@@ -1,6 +1,7 @@
 **/__pycache__/
 *.pyc
 logs/
+/log/
 attribute/models/
 attribute/logs/
 attribute/eval/
